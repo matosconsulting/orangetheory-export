@@ -1,0 +1,14 @@
+__pycache__/
+
+# Personal workout data: never commit exports, caches or login files.
+# Default and common output folders (any folder named otf_<something>, e.g. otf_exports/, otf_review/)
+otf_*/
+.otf_cache/
+.otf_export/
+token.json
+last_list.json
+# Exported files, wherever --out points inside the repo
+*.csv
+*.json
+*.html
+*.tmp
