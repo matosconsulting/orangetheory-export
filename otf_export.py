@@ -896,6 +896,10 @@ def summary_row(meta: dict[str, Any], summary: dict[str, Any], rows: list[dict[s
     return out
 
 
+def _has_telemetry(tel: Any) -> bool:
+    return isinstance(tel, dict) and bool(tel.get("telemetry"))
+
+
 def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
     targets = _resolve_targets(otf, args)
     if not targets:
@@ -908,6 +912,7 @@ def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
     summaries: list[dict[str, Any]] = []
     all_points: list[dict[str, Any]] = []
     failed: list[str] = []
+    no_telemetry = 0
     cache_dir = out_dir / ".otf_cache"
     cache_dir.mkdir(exist_ok=True)
     reused = 0
@@ -920,7 +925,8 @@ def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
         if not args.refresh and cache_file.exists():
             try:
                 cached = json.loads(cache_file.read_text(encoding="utf-8"))
-                if cached.get("points") != args.points:
+                # Re-fetch classes cached without telemetry: OTF may have processed them since.
+                if cached.get("points") != args.points or not _has_telemetry(cached.get("telemetry")):
                     cached = None
             except (OSError, ValueError):
                 cached = None
@@ -939,7 +945,9 @@ def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
                 print(f"{meta.get('starts_at', '')[:16]} {meta.get('name', '')}: FAILED - {e}")
                 failed.append(sid)
                 continue
-            if summary:  # only cache complete results so a missing summary is retried next run
+            # Only cache complete results, so a missing summary or telemetry is retried next run.
+            # Telemetry can show up a while after class: OTF processes it after the HR monitor syncs.
+            if summary and _has_telemetry(tel):
                 tmp = cache_file.with_suffix(".tmp")
                 tmp.write_text(json.dumps({"points": args.points, "summary": summary, "telemetry": tel}), encoding="utf-8")
                 tmp.replace(cache_file)
@@ -971,7 +979,9 @@ def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
             summaries.append(summary_row(meta, summary, rows, tel))
             label = {"class_id": sid, "class_start": meta.get("starts_at"), "class": meta.get("name")}
             all_points.extend({**label, **r} for r in rows)
-        note = "" if rows else "  (no telemetry - HR monitor probably not connected)"
+        if not rows:
+            no_telemetry += 1
+        note = "" if rows else "  (no telemetry yet - see note below)"
         note += "  [already downloaded]" if cached else ""
         print(f"{meta.get('starts_at', '')[:16]} {meta.get('name', '')}: {len(rows)} points{note}")
         for p in written:
@@ -979,6 +989,10 @@ def cmd_export(otf: Otf, args: argparse.Namespace) -> None:
 
     if reused:
         print(f"\nReused {reused} already-downloaded classes (use --refresh to fetch them again).")
+    if no_telemetry:
+        print(f"\n{no_telemetry} class(es) had no heart-rate/equipment data. For a recent class, OTF may still be "
+              "processing it: run the same command again later and those classes will be fetched again. "
+              "If it stays empty, the HR monitor probably wasn't connected.")
     if failed:
         print(f"\n{len(failed)} classes failed; re-run just those with: export {' '.join(failed)}")
 

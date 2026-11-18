@@ -83,7 +83,7 @@ A full-history export can take a while. If it stops partway (internet drops, lap
 | `can't open file ... otf_export.py` | The terminal isn't in the tool's folder. Go back to step 3 |
 | `Incorrect username or password` | Check your Orangetheory email and password. They're the ones you use in the app |
 | `CERTIFICATE_VERIFY_FAILED` (Mac) | Run **Install Certificates.command** from the Python folder in Applications |
-| `no telemetry - HR monitor probably not connected` | That class has no heart-rate data, usually because your monitor wasn't paired. Nothing to fix |
+| `no telemetry yet` | Orangetheory can take a while after class to process heart-rate and treadmill/rower data. Run the same command again later: classes without data are always fetched again. If it's still empty after a day, your HR monitor probably wasn't connected |
 | Some classes `FAILED` | Run the same command again: it only retries the failed ones |
 
 ### Opening the files

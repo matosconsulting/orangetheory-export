@@ -234,12 +234,17 @@ args5 = ["export", "all", "--since", "2023-03-01", "--points", "150", "--format"
 assert m.main(args5) == 0
 s = list(_c.DictReader(open(os.path.join(out5, "classes_summary.csv"), encoding="utf-8")))
 assert [r["class_id"] for r in s] == ["ps-2"], s           # ps-1 failed after retries, ps-bad failed
-# network back: re-run should reuse ps-2 and only fetch ps-1 + ps-bad
+# network back: re-run fetches ps-1 + ps-bad, and ps-2 again because it had no telemetry
+# (classes without telemetry are never cached: OTF may still have been processing them)
 calls.update(tel=0, drop=False)
 assert m.main(args5) == 0
 s = list(_c.DictReader(open(os.path.join(out5, "classes_summary.csv"), encoding="utf-8")))
 assert sorted(r["class_id"] for r in s) == ["ps-1", "ps-2"], s
-assert calls["tel"] == 1 + 3, calls   # ps-1 once, ps-bad 3 attempts (500s); ps-2 reused from cache
+assert calls["tel"] == 1 + 3 + 1, calls   # ps-1 once, ps-bad 3 attempts (500s), ps-2 re-checked
+# third run: ps-1 now comes from the cache, ps-2 (still empty) and ps-bad are fetched again
+calls.update(tel=0)
+assert m.main(args5) == 0
+assert calls["tel"] == 3 + 1, calls
 # transient drop that recovers on retry
 calls.update(tel=0)
 flaky = {"n": 0}
@@ -256,6 +261,34 @@ assert flaky["n"] == 2
 out8 = os.path.join(home, "exp8")
 assert m.main(["export", "ps-not-listed", "--format", "csv,html", "--out", out8]) == 0
 assert "2026-11-10_0800_orange-60.html" in os.listdir(out8), os.listdir(out8)
+
+# ---- telemetry that OTF hasn't processed yet shows up on a later run ----
+late = {"ready": False, "tel": 0}
+def do_GET_late(self):
+    if "/yuzu/" in self.path and "ps-2" in self.path:
+        late["tel"] += 1
+        if late["ready"]:
+            data = dict(telemetry(150), classHistoryUuid="ps-2")
+            return self.send(200, data)
+    return _g2(self)
+H.do_GET = do_GET_late
+out9 = os.path.join(home, "exp9")
+args9 = ["export", "ps-2", "--points", "150", "--format", "csv", "--out", out9]
+assert m.main(args9) == 0                                  # no telemetry yet
+assert not os.path.exists(os.path.join(out9, ".otf_cache", "ps-2.json")), "empty telemetry must not be cached"
+late["ready"] = True                                       # OTF has processed the class now
+assert m.main(args9) == 0
+csv9 = [f for f in os.listdir(out9) if f.endswith(".csv")][0]
+assert len(open(os.path.join(out9, csv9), encoding="utf-8").read().splitlines()) == 151
+assert os.path.exists(os.path.join(out9, ".otf_cache", "ps-2.json"))
+assert m.main(args9) == 0                                  # now cached: no further telemetry request
+assert late["tel"] == 2, late
+# an old cache entry without telemetry (written by an earlier version) is ignored, not reused
+cache_ps2 = os.path.join(out9, ".otf_cache", "ps-2.json")
+old = json.load(open(cache_ps2, encoding="utf-8")); old["telemetry"] = {"telemetry": []}
+json.dump(old, open(cache_ps2, "w", encoding="utf-8"))
+assert m.main(args9) == 0 and late["tel"] == 3, late
+H.do_GET = _g2
 print("RESUME TESTS PASSED")
 
 # ---- benchmarks ----
